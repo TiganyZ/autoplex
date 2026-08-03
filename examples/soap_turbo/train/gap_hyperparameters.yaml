@@ -1,0 +1,82 @@
+# GAP hyperparameters for a turboGAP-compatible potential.
+#
+# Loaded with autoplex.settings.MLIPHypers.from_file(). Only the values this
+# example changes are listed; everything else falls back to the autoplex
+# defaults in autoplex.settings.GAPSettings.
+
+GAP:
+  general:
+    # Descriptor selection. The turboGAP set is soap_turbo + distance_2b +
+    # angle_3b. autoplex's own two_body/three_body/soap terms are switched off
+    # here because turboGAP cannot evaluate distance_Nb or soap; leaving any of
+    # them on still fits fine under QUIP, but the potential will no longer
+    # convert.
+    two_body: false
+    three_body: false
+    soap: false
+    distance_2b: true
+    angle_3b: true
+    soap_turbo: true
+
+    default_sigma: '{0.0001 0.05 0.05 0}'
+    energy_parameter_name: REF_energy
+    force_parameter_name: REF_forces
+    virial_parameter_name: REF_virial
+
+  # Two-body term. turboGAP evaluates this as its distance_2b descriptor.
+  distance_2b:
+    cutoff: 5.0
+    # turboGAP hardcodes a buffer of 0.5 Angstrom for the two- and three-body
+    # terms and cannot read another value from the potential file. Changing this
+    # makes the converted potential disagree with QUIP.
+    cutoff_transition_width: 0.5
+    covariance_type: ard_se
+    delta: 2.0
+    theta_uniform: 0.5
+    n_sparse: 15
+    sparse_method: uniform
+
+  # Three-body term, built from q = [r12 + r13, (r12 - r13)^2, r23]. This is a
+  # different descriptor from autoplex's `three_body`, which uses QUIP's
+  # distance_Nb order=3.
+  angle_3b:
+    cutoff: 3.25
+    cutoff_transition_width: 0.5
+    covariance_type: ard_se
+    delta: 0.5
+    theta_fac: 0.5
+    n_sparse: 20
+    # 'uniform' only supports one-dimensional descriptors and angle_3b is
+    # three-dimensional, so the fit would abort.
+    sparse_method: cur_points
+
+  # Many-body soap_turbo term.
+  #
+  # The per-species entries (alpha_max, atom_sigma_r, atom_sigma_t, the two
+  # scalings, amplitude_scaling and central_weight) take either a single value,
+  # broadcast to every species, or a list with one value per species in the same
+  # order as species_list. Both forms are shown below.
+  soap_turbo:
+    rcut_hard: 5.0
+    rcut_soft: 4.5
+    l_max: 8
+    # one value per species: Li, Cl. `alpha_max: 6` would be equivalent here.
+    alpha_max: [6, 6]
+    # broadcast to both species
+    atom_sigma_r: 0.5
+    atom_sigma_t: 0.5
+    atom_sigma_r_scaling: 0.0
+    atom_sigma_t_scaling: 0.0
+    amplitude_scaling: 1.0
+    central_weight: 1.0
+    # values above 7 are numerically unstable for the poly3 basis; switch to
+    # poly3gauss if you need more radial basis functions
+    basis: poly3
+    scaling_mode: polynomial
+    radial_enhancement: 1
+    nf: 4.0
+    zeta: 4
+    delta: 1.0
+    covariance_type: dot_product
+    n_sparse: 50
+    sparse_method: cur_points
