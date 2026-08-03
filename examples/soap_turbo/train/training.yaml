@@ -1,0 +1,24 @@
+# Settings for run_training.py.
+
+# Directory holding train.extxyz and test.extxyz. Relative paths are resolved
+# against this file's directory.
+database_dir: data
+
+# Element names. The order matters: the per-species soap_turbo hyperparameters
+# in gap_hyperparameters.yaml are matched to this order.
+species_list:
+  - Li
+  - Cl
+
+# GAP hyperparameters, in autoplex.settings.MLIPHypers form.
+hyperparameters_file: gap_hyperparameters.yaml
+
+# Where the fitted potential is written. Relative to this file's directory.
+output_dir: results
+
+# Threads for gap_fit.
+num_processes_fit: 4
+
+# Scale each descriptor's delta by the energy the previous terms left
+# unexplained, fitting 2b, then 3b, then the many-body term in sequence.
+auto_delta: true

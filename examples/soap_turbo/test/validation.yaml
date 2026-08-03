@@ -1,0 +1,38 @@
+# Settings for run_validation.py.
+#
+# Relative paths are resolved against this file's directory.
+
+# The potential produced by ../train/run_training.py.
+mlip_dir: ../train/results
+gap_xml: gap_file.xml
+
+# Element names, in the same order used for the fit.
+species_list:
+  - Li
+  - Cl
+
+# Structures to evaluate with both QUIP and turboGAP.
+validation_structures: data/validation.extxyz
+
+# Held-out set the fit already reported an error on. Re-scored here so the
+# example checks accuracy against the reference data as well as code agreement.
+test_set: ../train/data/test.extxyz
+ref_energy_name: REF_energy
+
+# Where the converted turboGAP potential is written.
+output_dir: results
+
+# Path to a turboGAP checkout. Leave empty to auto-detect from the TURBOGAP_PATH
+# environment variable or from the turbogap executable on PATH.
+turbogap_path:
+turbogap_executable: turbogap
+
+# QUIP and turboGAP evaluate the same fitted potential, so any disagreement is a
+# conversion problem rather than a fit-quality one. These tolerances are
+# therefore tight; a correct conversion lands several orders of magnitude below.
+energy_tolerance: 1.0e-5   # eV/atom
+force_tolerance: 1.0e-4    # eV/Angstrom
+
+# Accuracy of the potential itself against the reference data, in eV/atom. Much
+# looser, and dataset-dependent.
+test_set_energy_tolerance: 1.0e-3
