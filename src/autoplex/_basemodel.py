@@ -32,7 +32,9 @@ class AutoplexBaseModel(BaseModel):
         for key, value in updates.items():
             if hasattr(self, key):
                 field_value = getattr(self, key)
-                if isinstance(field_value, self.__class__) and isinstance(value, dict):
+                if isinstance(field_value, AutoplexBaseModel) and isinstance(
+                    value, dict
+                ):
                     # Update nested model
                     field_value.update_parameters(
                         value

@@ -79,7 +79,8 @@ class MLIPFitMaker(Maker):
     atom_wise_regularization: bool
         For including atom-wise regularization.
     auto_delta: bool
-        Automatically determine delta for 2b, 3b and soap terms.
+        Automatically determine delta for the 2b, 3b, soap, distance_2b, angle_3b
+        and soap_turbo terms.
     glue_xml: bool
         Use the glue.xml core potential instead of fitting 2b terms.
     num_processes_fit: int

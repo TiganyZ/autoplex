@@ -139,7 +139,8 @@ def gap_fitting(
     num_processes_fit: int
         Number of processes used for gap_fit
     auto_delta: bool
-        Automatically determine delta for 2b, 3b and soap terms.
+        Automatically determine delta for the 2b, 3b, soap, distance_2b, angle_3b
+        and soap_turbo terms.
     glue_xml: bool
         Use the glue.xml core potential instead of fitting 2b terms.
     ref_energy_name: str
@@ -210,7 +211,15 @@ def gap_fitting(
     include_two_body = gap_default_hyperparameters["general"]["two_body"]
     include_three_body = gap_default_hyperparameters["general"]["three_body"]
     include_soap = gap_default_hyperparameters["general"]["soap"]
+    include_distance_2b = gap_default_hyperparameters["general"].get(
+        "distance_2b", False
+    )
+    include_angle_3b = gap_default_hyperparameters["general"].get("angle_3b", False)
+    include_soap_turbo = gap_default_hyperparameters["general"].get("soap_turbo", False)
     gap_default_hyperparameters["general"].update({"at_file": train_data_path})
+
+    if include_distance_2b or include_angle_3b or include_soap_turbo:
+        check_turbogap_compatibility(gap_default_hyperparameters)
 
     if auto_delta:
         if include_two_body and not glue_xml:
@@ -227,6 +236,36 @@ def gap_fitting(
             fit_parameters_list = gap_hyperparameter_constructor(
                 gap_parameter_dict=gap_default_hyperparameters,
                 include_two_body=include_two_body,
+            )
+
+            run_gap(num_processes_fit, fit_parameters_list)
+
+            run_ase_gap(
+                num_processes_fit, train_data_path, gap_file_xml, quip_train_file
+            )
+
+        if include_distance_2b and not glue_xml:
+            if include_angle_3b or include_soap_turbo:
+                cutoff_distance_2b = gap_default_hyperparameters["distance_2b"][
+                    "cutoff"
+                ]
+                delta_distance_2b = calculate_delta_2b(
+                    atoms_db=db_atoms,
+                    cutoff=cutoff_distance_2b,
+                    e_name=ref_energy_name,
+                )
+            else:
+                delta_distance_2b = 1
+
+            gap_default_hyperparameters["distance_2b"].update(
+                {"delta": delta_distance_2b}
+            )
+
+            fit_parameters_list = gap_hyperparameter_constructor(
+                gap_parameter_dict=gap_default_hyperparameters,
+                include_two_body=include_two_body,
+                include_distance_2b=include_distance_2b,
+                species_list=species_list,
             )
 
             run_gap(num_processes_fit, fit_parameters_list)
@@ -253,9 +292,40 @@ def gap_fitting(
                 gap_parameter_dict=gap_default_hyperparameters,
                 include_two_body=include_two_body,
                 include_three_body=include_three_body,
+                include_distance_2b=include_distance_2b,
+                species_list=species_list,
             )
 
             print("fit_parameters_list:", fit_parameters_list)
+
+            run_gap(num_processes_fit, fit_parameters_list)
+            run_ase_gap(
+                num_processes_fit, train_data_path, gap_file_xml, quip_train_file
+            )
+
+        if include_angle_3b and not glue_xml:
+            if include_two_body or include_distance_2b:
+                cutoff_angle_3b = gap_default_hyperparameters["angle_3b"]["cutoff"]
+                energy_residual = energy_remain(quip_train_file)
+                descriptor_num_list = [
+                    compute_num_of_descriptor(atom=at, nb=3, cutoff=cutoff_angle_3b)
+                    / len(at)
+                    for at in db_atoms
+                ]
+                num_of_descriptors = sum(descriptor_num_list) / len(db_atoms)
+                delta_angle_3b = energy_residual / num_of_descriptors
+            else:
+                delta_angle_3b = 1
+            gap_default_hyperparameters["angle_3b"].update({"delta": delta_angle_3b})
+
+            fit_parameters_list = gap_hyperparameter_constructor(
+                gap_parameter_dict=gap_default_hyperparameters,
+                include_two_body=include_two_body,
+                include_three_body=include_three_body,
+                include_distance_2b=include_distance_2b,
+                include_angle_3b=include_angle_3b,
+                species_list=species_list,
+            )
 
             run_gap(num_processes_fit, fit_parameters_list)
             run_ase_gap(
@@ -283,12 +353,15 @@ def gap_fitting(
                 glue_xml,
             )
 
+        has_lower_body_terms = (
+            include_two_body
+            or include_three_body
+            or include_distance_2b
+            or include_angle_3b
+        )
+
         if include_soap:
-            delta_soap = (
-                energy_remain(quip_train_file)
-                if include_two_body or include_three_body
-                else 1
-            )
+            delta_soap = energy_remain(quip_train_file) if has_lower_body_terms else 1
             gap_default_hyperparameters["soap"].update({"delta": delta_soap})
 
             fit_parameters_list = gap_hyperparameter_constructor(
@@ -296,6 +369,39 @@ def gap_fitting(
                 include_two_body=include_two_body,
                 include_three_body=include_three_body,
                 include_soap=include_soap,
+                include_distance_2b=include_distance_2b,
+                include_angle_3b=include_angle_3b,
+                species_list=species_list,
+            )
+
+            run_gap(num_processes_fit, fit_parameters_list)
+            run_ase_gap(
+                num_processes_fit,
+                train_data_path,
+                gap_file_xml,
+                quip_train_file,
+                glue_xml,
+            )
+
+        if include_soap_turbo:
+            delta_soap_turbo = (
+                energy_remain(quip_train_file)
+                if has_lower_body_terms or include_soap
+                else 1
+            )
+            gap_default_hyperparameters["soap_turbo"].update(
+                {"delta": delta_soap_turbo}
+            )
+
+            fit_parameters_list = gap_hyperparameter_constructor(
+                gap_parameter_dict=gap_default_hyperparameters,
+                include_two_body=include_two_body,
+                include_three_body=include_three_body,
+                include_soap=include_soap,
+                include_distance_2b=include_distance_2b,
+                include_angle_3b=include_angle_3b,
+                include_soap_turbo=include_soap_turbo,
+                species_list=species_list,
             )
 
             run_gap(num_processes_fit, fit_parameters_list)
@@ -319,6 +425,10 @@ def gap_fitting(
             include_two_body=include_two_body,
             include_three_body=include_three_body,
             include_soap=include_soap,
+            include_distance_2b=include_distance_2b,
+            include_angle_3b=include_angle_3b,
+            include_soap_turbo=include_soap_turbo,
+            species_list=species_list,
         )
 
         run_gap(num_processes_fit, fit_parameters_list)
@@ -1762,11 +1872,209 @@ def check_convergence(test_error: float) -> bool:
     return convergence
 
 
+#: Marker gap_fit writes to stderr when a fit aborts. Its Python entry point
+#: exits with code 0 regardless, so this is the only reliable failure signal.
+GAP_FIT_ABORT_MARKER = "SYSTEM ABORT"
+
+#: turboGAP hardcodes the cutoff buffer for its two- and three-body terms and
+#: offers no potential-file keyword to override it (see ``types.f90``), so a
+#: potential only round-trips exactly when the fit used this value.
+TURBOGAP_CUTOFF_TRANSITION_WIDTH = 0.5
+
+#: Above this value the poly3 radial basis becomes numerically unstable; QUIP
+#: turns its own warning into a hard error above 10.
+SOAP_TURBO_MAX_STABLE_ALPHA_MAX = 7
+
+
+def check_turbogap_compatibility(gap_parameter_dict: dict) -> None:
+    """
+    Warn about hyperparameter choices that break conversion to turboGAP.
+
+    The fit itself succeeds in every case flagged here; only the fidelity of a
+    subsequent conversion to the turboGAP potential format is at stake, so these
+    are warnings rather than errors.
+
+    Parameters
+    ----------
+    gap_parameter_dict: dict
+        Dictionary with gap hyperparameters.
+    """
+    for term in ("distance_2b", "angle_3b"):
+        width = gap_parameter_dict.get(term, {}).get("cutoff_transition_width")
+        if width is not None and width != TURBOGAP_CUTOFF_TRANSITION_WIDTH:
+            logging.warning(
+                f"{term} cutoff_transition_width is {width}, but turboGAP hardcodes a "
+                f"buffer of {TURBOGAP_CUTOFF_TRANSITION_WIDTH} for its two- and "
+                f"three-body terms and cannot read another value from the potential "
+                f"file. The fitted potential will not reproduce QUIP energies after "
+                f"conversion to turboGAP."
+            )
+
+    if gap_parameter_dict.get("angle_3b", {}).get("sparse_method") == "uniform":
+        logging.warning(
+            "angle_3b uses sparse_method='uniform', which only supports "
+            "one-dimensional descriptors. gap_fit will abort; use 'cur_points'."
+        )
+
+    soap_turbo = gap_parameter_dict.get("soap_turbo", {})
+    alpha_max = soap_turbo.get("alpha_max")
+    if alpha_max is not None and soap_turbo.get("basis") == "poly3":
+        values = alpha_max if isinstance(alpha_max, (list, tuple)) else [alpha_max]
+        if any(value > SOAP_TURBO_MAX_STABLE_ALPHA_MAX for value in values):
+            logging.warning(
+                f"soap_turbo alpha_max={alpha_max} exceeds "
+                f"{SOAP_TURBO_MAX_STABLE_ALPHA_MAX} for the poly3 basis, where the "
+                f"basis construction becomes numerically unstable. Consider "
+                f"basis='poly3gauss' or a smaller alpha_max."
+            )
+
+
+def _format_descriptor_params(params: dict) -> str:
+    """Render a descriptor parameter dict as a ``key=value`` string."""
+    return " ".join(f"{key}={value}" for key, value in params.items())
+
+
+def _as_species_array(value: float | list, n_species: int, name: str) -> str:
+    """
+    Render a per-species soap_turbo hyperparameter as a ``gap_fit`` array literal.
+
+    A scalar is broadcast to every species. The doubled braces are deliberate:
+    ``gap_fit`` strips one level of braces when it unpacks the ``gap={...}``
+    argument, so ``{{a b}}`` is what reaches the descriptor as ``{a b}``.
+
+    Parameters
+    ----------
+    value: float | int | list
+        Either a single value to broadcast, or one value per species.
+    n_species: int
+        Number of species in the fit.
+    name: str
+        Hyperparameter name, used for error reporting.
+
+    Returns
+    -------
+        str
+            The ``{{...}}`` array literal.
+    """
+    values = list(value) if isinstance(value, (list, tuple)) else [value] * n_species
+
+    if len(values) != n_species:
+        raise ValueError(
+            f"soap_turbo hyperparameter '{name}' has {len(values)} values but the fit "
+            f"has {n_species} species. Provide either a single value or one per species."
+        )
+
+    return "{{" + " ".join(str(entry) for entry in values) + "}}"
+
+
+def soap_turbo_hyperparameter_constructor(
+    soap_turbo_parameter_dict: dict, species_list: list
+) -> list[str]:
+    """
+    Build one soap_turbo descriptor string per central species.
+
+    QUIP's ``add_species=T`` machinery cannot be used with soap_turbo: gap_fit
+    initialises the raw descriptor string before the species information is
+    substituted in, so the fit aborts on the missing mandatory ``species_Z``.
+    autoplex therefore performs the expansion itself, emitting one descriptor per
+    central species with an explicit ``central_index``, mirroring the recipe in
+    QUIP's ``descriptor_str_add_species``.
+
+    Parameters
+    ----------
+    soap_turbo_parameter_dict: dict
+        soap_turbo hyperparameters.
+    species_list: list
+        List of element names (strings) present in the training set.
+
+    Returns
+    -------
+        list[str]
+            One descriptor string per central species.
+    """
+    per_species_keys = (
+        "alpha_max",
+        "atom_sigma_r",
+        "atom_sigma_t",
+        "atom_sigma_r_scaling",
+        "atom_sigma_t_scaling",
+        "amplitude_scaling",
+        "central_weight",
+    )
+
+    atomic_numbers = get_atomic_numbers(species_list)
+    n_species = len(atomic_numbers)
+
+    params = dict(soap_turbo_parameter_dict)
+    for key in per_species_keys:
+        if key in params:
+            params[key] = _as_species_array(params[key], n_species, key)
+
+    # "None" is QUIP's default and means no compression, but turboGAP's converter
+    # copies the key through unconditionally and turboGAP then rejects the literal
+    # string, so leave it out entirely instead
+    if str(params.get("compress_mode", "None")).lower() in ("none", ""):
+        params.pop("compress_mode", None)
+
+    params["n_species"] = n_species
+    params["species_Z"] = "{{" + " ".join(str(z) for z in atomic_numbers) + "}}"
+    # the species expansion is done here, so gap_fit must not repeat it
+    params["add_species"] = "F"
+
+    return [
+        "soap_turbo "
+        + _format_descriptor_params({**params, "central_index": central_index})
+        for central_index in range(1, n_species + 1)
+    ]
+
+
+def angle_3b_hyperparameter_constructor(
+    angle_3b_parameter_dict: dict, species_list: list
+) -> list[str]:
+    """
+    Build one angle_3b descriptor string per (central species, neighbour pair) triplet.
+
+    QUIP can expand ``angle_3b`` itself via ``add_species=T``, but it writes the
+    central atom out as ``Z=``. turboGAP's converter reads the central species
+    from ``Z_center=``, so a potential fitted that way cannot be converted.
+    Expanding here lets autoplex emit ``Z_center=`` explicitly.
+
+    Parameters
+    ----------
+    angle_3b_parameter_dict: dict
+        angle_3b hyperparameters.
+    species_list: list
+        List of element names (strings) present in the training set.
+
+    Returns
+    -------
+        list[str]
+            One descriptor string per triplet.
+    """
+    atomic_numbers = get_atomic_numbers(species_list)
+    # the species expansion is done here, so gap_fit must not repeat it: its
+    # add_species default is T, which would re-expand every triplet below
+    params = {**angle_3b_parameter_dict, "add_species": "F"}
+    base = _format_descriptor_params(params)
+
+    return [
+        f"angle_3b {base} Z_center={z_center} Z1={z1} Z2={z2}"
+        for z_center in atomic_numbers
+        for i, z1 in enumerate(atomic_numbers)
+        # the two neighbours are unordered, so only take each pair once
+        for z2 in atomic_numbers[i:]
+    ]
+
+
 def gap_hyperparameter_constructor(
     gap_parameter_dict: dict,
     include_two_body: bool = False,
     include_three_body: bool = False,
     include_soap: bool = False,
+    include_distance_2b: bool = False,
+    include_angle_3b: bool = False,
+    include_soap_turbo: bool = False,
+    species_list: list | None = None,
 ) -> list:
     """
     Construct a list of arguments needed to execute gap potential from the parameters' dict.
@@ -1781,6 +2089,15 @@ def gap_hyperparameter_constructor(
         bool indicating whether to include three-body hyperparameters
     include_soap : bool.
         bool indicating whether to include soap hyperparameters
+    include_distance_2b : bool.
+        bool indicating whether to include turboGAP-style distance_2b hyperparameters
+    include_angle_3b : bool.
+        bool indicating whether to include turboGAP-style angle_3b hyperparameters
+    include_soap_turbo : bool.
+        bool indicating whether to include soap_turbo hyperparameters
+    species_list : list | None.
+        List of element names (strings). Required for the angle_3b and soap_turbo
+        terms, which autoplex expands per species.
 
     Returns
     -------
@@ -1788,50 +2105,64 @@ def gap_hyperparameter_constructor(
            gap fit input parameter string.
     """
     dict_wo_term_name = gap_parameter_dict.copy()
-    if "two_body" in dict_wo_term_name["general"]:
-        del dict_wo_term_name["general"]["two_body"]
-    if "three_body" in dict_wo_term_name["general"]:
-        del dict_wo_term_name["general"]["three_body"]
-    if "soap" in dict_wo_term_name["general"]:
-        del dict_wo_term_name["general"]["soap"]
-
-    general = [f"{key}={value}" for key, value in dict_wo_term_name["general"].items()]
-
-    two_body_params = " ".join(
-        [
-            f"{key}={value}"
-            for key, value in dict_wo_term_name["twob"].items()
-            if include_two_body is True
-        ]
+    # the descriptor toggles select which terms to fit, they are not gap_fit
+    # arguments themselves. Filtering into a new dict rather than deleting keeps
+    # the caller's dictionary intact across the repeated calls that the staged
+    # auto_delta fit makes.
+    term_toggles = (
+        "two_body",
+        "three_body",
+        "soap",
+        "distance_2b",
+        "angle_3b",
+        "soap_turbo",
     )
+    general = [
+        f"{key}={value}"
+        for key, value in dict_wo_term_name["general"].items()
+        if key not in term_toggles
+    ]
 
-    three_body_params = " ".join(
-        [
-            f"{key}={value}"
-            for key, value in dict_wo_term_name["threeb"].items()
-            if include_three_body is True
-        ]
-    )
+    if (include_angle_3b or include_soap_turbo) and not species_list:
+        raise ValueError(
+            "species_list is required to build the angle_3b and soap_turbo "
+            "descriptors, because autoplex expands them per species."
+        )
 
-    soap_params = " ".join(
-        [
-            f"{key}={value}"
-            for key, value in dict_wo_term_name["soap"].items()
-            if include_soap is True
-        ]
-    )
-    # add separator between the arg types
-    if include_two_body and include_three_body and include_soap:
-        three_body_params = " :" + three_body_params
-        soap_params = " :soap " + soap_params
-    elif include_two_body and include_three_body and not include_soap:
-        three_body_params = " :" + three_body_params
-    elif (include_two_body or include_three_body) and include_soap:
-        soap_params = " :soap " + soap_params
-    elif include_soap and not include_three_body and not include_two_body:
-        soap_params = "soap " + soap_params
+    # every entry is a complete descriptor string; gap_fit separates them with ':'
+    descriptor_blocks: list[str] = []
 
-    gap_hyperparameters = f"gap={{{two_body_params}{three_body_params}{soap_params}}}"
+    if include_two_body:
+        descriptor_blocks.append(_format_descriptor_params(dict_wo_term_name["twob"]))
+
+    if include_three_body:
+        descriptor_blocks.append(_format_descriptor_params(dict_wo_term_name["threeb"]))
+
+    if include_soap:
+        descriptor_blocks.append(
+            "soap " + _format_descriptor_params(dict_wo_term_name["soap"])
+        )
+
+    if include_distance_2b:
+        descriptor_blocks.append(
+            "distance_2b " + _format_descriptor_params(dict_wo_term_name["distance_2b"])
+        )
+
+    if include_angle_3b:
+        descriptor_blocks.extend(
+            angle_3b_hyperparameter_constructor(
+                dict_wo_term_name["angle_3b"], species_list
+            )
+        )
+
+    if include_soap_turbo:
+        descriptor_blocks.extend(
+            soap_turbo_hyperparameter_constructor(
+                dict_wo_term_name["soap_turbo"], species_list
+            )
+        )
+
+    gap_hyperparameters = f"gap={{{' :'.join(descriptor_blocks)}}}"
 
     return [*general, gap_hyperparameters]
 
@@ -2242,6 +2573,11 @@ def run_gap(num_processes_fit: int, parameters) -> None:
     ----------
         GAP fit parameters.
 
+    Raises
+    ------
+    RuntimeError
+        If the fit fails, either by returning a non-zero code or by aborting.
+
     """
     os.environ["OMP_NUM_THREADS"] = str(num_processes_fit)
     os.environ["OPENBLAS_NUM_THREADS"] = "1"  # blas library
@@ -2253,7 +2589,31 @@ def run_gap(num_processes_fit: int, parameters) -> None:
         open("std_gap_out.log", "w", encoding="utf-8") as file_std,
         open("std_gap_err.log", "w", encoding="utf-8") as file_err,
     ):
-        subprocess.call(["gap_fit", *parameters], stdout=file_std, stderr=file_err)
+        return_code = subprocess.call(
+            ["gap_fit", *parameters], stdout=file_std, stderr=file_err
+        )
+
+    try:
+        error_log = Path("std_gap_err.log").read_text(encoding="utf-8").strip()
+    except OSError:  # pragma: no cover - only if the log went missing
+        error_log = ""
+
+    # gap_fit's Python entry point swallows the Fortran STOP and exits 0 even
+    # when the fit aborts, so the log has to be inspected as well. Continuing
+    # past a failed fit would leave the previously written potential in place and
+    # report its errors as though they belonged to the requested potential.
+    aborted = GAP_FIT_ABORT_MARKER in error_log
+
+    if return_code != 0 or aborted:
+        reason = (
+            f"it aborted ({GAP_FIT_ABORT_MARKER} in std_gap_err.log)"
+            if aborted
+            else f"it returned code {return_code}"
+        )
+        raise RuntimeError(
+            f"gap_fit failed: {reason}. See std_gap_out.log and std_gap_err.log "
+            f"for the full output." + (f"\n{error_log[-2000:]}" if error_log else "")
+        )
 
 
 class CustomPotential(quippy.potential.Potential):
