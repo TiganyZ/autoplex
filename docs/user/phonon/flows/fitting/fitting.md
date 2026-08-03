@@ -99,6 +99,80 @@ complete_flow = CompleteDFTvsMLBenchmarkWorkflow(
 `autoplex.settings.GAPSettings`, 
 that can be overwritten using the fit keyword arguments as demonstrated in the code snippet.
 
+### soap_turbo and the turboGAP descriptor set
+
+Besides QUIP's `distance_Nb` and `soap` descriptors, `autoplex` can fit the descriptor
+set that [turboGAP](https://github.com/mcaroba/turbogap) evaluates natively:
+[`soap_turbo`](https://github.com/libAtoms/soap_turbo) together with `distance_2b`
+and `angle_3b`. These are enabled with their own switches in the `general` block and
+configured through the `distance_2b`, `angle_3b` and `soap_turbo` blocks:
+
+```python
+    fit_kwargs_list=[{
+     "general": {"two_body": False, "three_body": False, "soap": False,
+                 "distance_2b": True, "angle_3b": True, "soap_turbo": True},
+     "distance_2b": {"cutoff": 5.0, "n_sparse": 15},
+     "angle_3b": {"cutoff": 3.25, "n_sparse": 100},
+     "soap_turbo": {"rcut_hard": 5.0, "rcut_soft": 4.5, "l_max": 8, "alpha_max": 6},
+    }]
+```
+
+The three new terms can be combined freely with each other and with the existing
+`two_body`, `three_body` and `soap` terms. Note that these are genuinely different
+descriptors rather than aliases: `angle_3b` is built from
+`q = [r12 + r13, (r12 - r13)^2, r23]`, whereas `three_body` uses QUIP's
+`distance_Nb order=3`.
+
+Per-species `soap_turbo` hyperparameters (`alpha_max`, `atom_sigma_r`, `atom_sigma_t`,
+`atom_sigma_r_scaling`, `atom_sigma_t_scaling`, `amplitude_scaling` and
+`central_weight`) accept either a single value, broadcast to every species, or one
+value per species. `autoplex` expands them and emits one descriptor per central
+species, since QUIP's `add_species` machinery does not work for `soap_turbo`.
+
+A few defaults are deliberately conservative and should not be changed without
+reason:
+
+| Setting | Constraint |
+| --- | --- |
+| `distance_2b`/`angle_3b` `cutoff_transition_width` | turboGAP hardcodes a buffer of 0.5 Å for these terms and cannot read another value from the potential file |
+| `angle_3b` `sparse_method` | `uniform` only supports one-dimensional descriptors; `angle_3b` is three-dimensional |
+| `soap_turbo` `alpha_max` | above 7 the `poly3` basis becomes numerically unstable; use `poly3gauss` if you need more radial functions |
+
+`autoplex` warns when any of these is violated.
+
+### Converting a fitted potential to turboGAP
+
+A potential fitted with the descriptors above can be converted to turboGAP's own
+potential format and validated against QUIP:
+
+```python
+from autoplex.fitting.common.turbogap import (
+    convert_gap_to_turbogap,
+    validate_turbogap_potential,
+)
+
+conversion = convert_gap_to_turbogap(
+    "gap_file.xml", species_list=["Li", "Cl"], output_dir="turbogap_potential"
+)
+
+result = validate_turbogap_potential(
+    gap_xml_path="gap_file.xml",
+    structure=structure,
+    species_list=["Li", "Cl"],
+    workdir="validation",
+)
+assert result["agrees"]
+```
+
+This wraps the `make_gap_files.py` converter shipped with turboGAP, which is located
+via the `turbogap_path` argument, the `TURBOGAP_PATH` environment variable, or the
+`turbogap` executable on `PATH`. On top of the conversion, `autoplex` handles two
+things the converter leaves out: it removes descriptors whose sparse set is empty
+(these arise whenever a species combination has no representation in the training
+set, and make turboGAP abort while reading the potential), and it carries the
+per-species `e0` values from the QUIP XML into the turboGAP input file (without
+them every predicted energy is offset by the isolated-atom reference).
+
 `autoplex` follows a certain convention for naming files and labelling the data 
 (see `autoplex.settings.GAPSettings.GeneralSettings`).
 ```json

@@ -59,7 +59,8 @@ def machine_learning_fit(
     num_processes_fit: int
         Number of processes for fitting.
     auto_delta: bool
-        Automatically determine delta for 2b, 3b and soap terms. Only used for GAP fitting.
+        Automatically determine delta for the 2b, 3b, soap, distance_2b, angle_3b
+        and soap_turbo terms. Only used for GAP fitting.
     glue_xml: bool
         Use the glue.xml core potential instead of fitting 2b terms. Only used for GAP fitting.
     glue_file_path: str
